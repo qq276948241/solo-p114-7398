@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS orders (
     pickup_date DATE NOT NULL COMMENT '取货日期',
     pickup_slot VARCHAR(20) NOT NULL COMMENT '取货时段',
     total_amount DECIMAL(10,2) NOT NULL COMMENT '总金额',
-    status ENUM('pending', 'ready', 'picked') NOT NULL DEFAULT 'pending' COMMENT '订单状态：待生产/可取/已取',
+    status ENUM('pending', 'ready', 'picked', 'cancelled') NOT NULL DEFAULT 'pending' COMMENT '订单状态：待生产/可取/已取/已取消',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),

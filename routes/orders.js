@@ -10,5 +10,6 @@ router.get('/production', authenticate, requireKitchen, orderController.getProdu
 router.get('/list', authenticate, requireKitchen, orderController.getOrders);
 router.get('/:id', authenticate, orderController.getOrderDetail);
 router.patch('/:id/status', authenticate, requireKitchen, validate('updateOrderStatus'), orderController.updateOrderStatus);
+router.delete('/:id', authenticate, orderController.cancelOrder);
 
 module.exports = router;

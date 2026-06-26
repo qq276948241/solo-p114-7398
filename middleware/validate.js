@@ -59,7 +59,7 @@ const schemas = {
   }),
 
   updateOrderStatus: Joi.object({
-    status: Joi.string().valid('pending', 'ready', 'picked').required()
+    status: Joi.string().valid('pending', 'ready', 'picked', 'cancelled').required()
   })
 };
 

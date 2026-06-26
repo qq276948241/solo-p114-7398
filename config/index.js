@@ -19,7 +19,8 @@ module.exports = {
   ORDER_STATUS: {
     PENDING: 'pending',
     READY: 'ready',
-    PICKED: 'picked'
+    PICKED: 'picked',
+    CANCELLED: 'cancelled'
   },
   PRODUCT_STATUS: {
     ON_SALE: 'on_sale',

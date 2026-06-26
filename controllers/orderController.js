@@ -217,7 +217,8 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
   const statusText = {
     [ORDER_STATUS.PENDING]: '待生产',
     [ORDER_STATUS.READY]: '可取',
-    [ORDER_STATUS.PICKED]: '已取'
+    [ORDER_STATUS.PICKED]: '已取',
+    [ORDER_STATUS.CANCELLED]: '已取消'
   };
 
   res.json(success(rows[0], `订单状态已更新为${statusText[status] || status}`));
@@ -254,11 +255,109 @@ const getOrders = asyncHandler(async (req, res) => {
   res.json(success(rows));
 });
 
+const cancelOrder = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  const userRole = req.user.role;
+  const isStaff = userRole === ROLES.KITCHEN || userRole === ROLES.ADMIN;
+
+  const [orderRows] = await pool.query('SELECT * FROM orders WHERE id = ?', [id]);
+  if (orderRows.length === 0) {
+    throw new BusinessError('订单不存在', 404);
+  }
+
+  const order = orderRows[0];
+
+  if (userRole === ROLES.CUSTOMER && order.user_id !== userId) {
+    throw new BusinessError('无权取消他人订单', 403);
+  }
+
+  if (order.status === ORDER_STATUS.CANCELLED) {
+    throw new BusinessError('订单已取消，无需重复操作', 400);
+  }
+
+  if (userRole === ROLES.CUSTOMER) {
+    if (order.status !== ORDER_STATUS.PENDING) {
+      throw new BusinessError('仅待生产状态的订单可取消，请联系后厨处理', 400);
+    }
+    if (!isBeforeCutoffTime(ORDER_CUTOFF_HOUR)) {
+      throw new BusinessError(`已过当日${ORDER_CUTOFF_HOUR}点截单时间，无法自助取消，请联系后厨`, 400);
+    }
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [lockedOrders] = await connection.query(
+      'SELECT * FROM orders WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    const lockedOrder = lockedOrders[0];
+
+    if (lockedOrder.status === ORDER_STATUS.CANCELLED) {
+      await connection.rollback();
+      throw new BusinessError('订单已取消，无需重复操作', 400);
+    }
+
+    const shouldReturnInventory = lockedOrder.status !== ORDER_STATUS.PICKED;
+    let returnedQuantity = 0;
+
+    if (shouldReturnInventory) {
+      const [inventoryRows] = await connection.query(
+        'SELECT * FROM inventory WHERE product_id = ? AND date = ? FOR UPDATE',
+        [lockedOrder.product_id, lockedOrder.pickup_date]
+      );
+
+      if (inventoryRows.length > 0) {
+        const inventory = inventoryRows[0];
+        const newRemaining = Math.min(
+          inventory.remaining_quantity + lockedOrder.quantity,
+          inventory.total_quantity
+        );
+        returnedQuantity = newRemaining - inventory.remaining_quantity;
+
+        await connection.query(
+          'UPDATE inventory SET remaining_quantity = ? WHERE id = ?',
+          [newRemaining, inventory.id]
+        );
+      }
+    }
+
+    await connection.query(
+      'UPDATE orders SET status = ? WHERE id = ?',
+      [ORDER_STATUS.CANCELLED, id]
+    );
+
+    await connection.commit();
+
+    const [finalRows] = await pool.query(`
+      SELECT o.*, p.name as product_name, p.price, p.image, u.phone, u.name as user_name
+      FROM orders o
+      LEFT JOIN products p ON o.product_id = p.id
+      LEFT JOIN users u ON o.user_id = u.id
+      WHERE o.id = ?
+    `, [id]);
+
+    const msg = isStaff
+      ? `订单已强制取消${returnedQuantity > 0 ? `，已归还库存 ${returnedQuantity} 份` : ''}`
+      : `订单已取消，已归还库存 ${lockedOrder.quantity} 份`;
+
+    res.json(success(finalRows[0], msg));
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = {
   createOrder,
   getMyOrders,
   getOrderDetail,
   getProductionList,
   updateOrderStatus,
-  getOrders
+  getOrders,
+  cancelOrder
 };
